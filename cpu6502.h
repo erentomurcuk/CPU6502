@@ -115,11 +115,61 @@ struct CPU {
             INST_LDA_ABSY   = 0xB9,
             INST_LDA_INDX   = 0xA1,
             INST_LDA_INDY   = 0xB1,
+
+            INST_LDX_IM     = 0xA2,
+            INST_LDX_ZP     = 0xA6,
+            INST_LDX_ZPY    = 0xB6,
+            INST_LDX_ABS    = 0xAE,
+            INST_LDX_ABSY   = 0xBE,
+
+            INST_LDY_IM     = 0xA0,
+            INST_LDY_ZP     = 0xA4,
+            INST_LDY_ZPX    = 0xB4,
+            INST_LDY_ABS    = 0xAC,
+            INST_LDY_ABSX   = 0xBC,
+
             INST_JSR        = 0x20;
 
-    void LDASetStatus() {
-        Z = (A==0);
-        N = (A & 0b10000000) > 0;
+    // Set correct CPU status after LDA, LDX, LDY
+    void LoadRegisterSetStatus(const Byte reg) {
+        Z = (reg == 0);
+        N = (reg & 0b10000000) > 0;
+    }
+
+    Word addressZeroPage(u32 &cycles, MEM &memory) {
+        Byte zeroPageAddress = fetchByte(cycles, memory);
+        return zeroPageAddress;
+    }
+
+    Word addressZeroPageOffsetX(u32 &cycles, MEM &memory) {
+        Byte zeroPageAddress = fetchByte(cycles, memory);
+        zeroPageAddress += X;
+        cycles--;
+    }
+
+    Word addressZeroPageOffsetY(u32 &cycles, MEM &memory) {
+        Byte zeroPageAddress = fetchByte(cycles, memory);
+        zeroPageAddress += Y;
+        cycles--;
+    }
+
+    Word addressAbsolute(u32 &cycles, MEM &memory) {
+         Word absoluteAddress = fetchWord(cycles, memory);
+         return absoluteAddress;
+    }
+
+    Word addressAbsoluteOffsetX(u32 &cycles, MEM &memory) {
+        Word absoluteAddress = fetchWord(cycles, memory);
+        Word absoluteAddressX = absoluteAddress + X;
+        if ((absoluteAddressX - absoluteAddress) >= 0xFF ) cycles--;
+        return absoluteAddressX;
+    }
+
+    Word addressAbsoluteOffsetY(u32 &cycles, MEM &memory) {
+        Word absoluteAddress = fetchWord(cycles, memory);
+        Word absoluteAddressY = absoluteAddress + Y;
+        if ((absoluteAddressY - absoluteAddress) >= 0xFF ) cycles--;
+        return absoluteAddressY;
     }
 
     void exec(u32 cycles, MEM &memory) {
@@ -128,56 +178,53 @@ struct CPU {
             Byte inst = fetchByte(cycles, memory);
 
             switch (inst) {
+
+                /* LDA */
+
                 case INST_LDA_IM: {
 
-                    Byte value = fetchByte(cycles, memory);
-                    A = value;
-                    LDASetStatus();
+                    A = fetchByte(cycles, memory);
+                    LoadRegisterSetStatus(A);
 
                 } break;
 
                 case INST_LDA_ZP: {
 
-                    Byte zeroPageAddress = fetchByte(cycles, memory);
-                    A = readByte(cycles, zeroPageAddress, memory);
-                    LDASetStatus();
+                    Word address = addressZeroPage(cycles, memory);
+                    A = readByte(cycles, address, memory);
+                    LoadRegisterSetStatus(A);
 
                 } break;
 
                 case INST_LDA_ZPX: {
 
-                    Byte zeroPageAddress = fetchByte(cycles, memory);
-                    zeroPageAddress += X;
-                    cycles--;
-                    A = readByte(cycles, zeroPageAddress, memory);
-                    LDASetStatus();
+                    Word address = addressZeroPageOffsetX(cycles, memory);
+                    A = readByte(cycles, address, memory);
+                    LoadRegisterSetStatus(A);
 
                 } break;
 
                 case INST_LDA_ABS: {
 
-                    Word absoluteAddress = fetchWord(cycles, memory);
-                    A = readByte(cycles, absoluteAddress, memory);
+                    Word address = addressAbsolute(cycles, memory);
+                    A = readByte(cycles, address, memory);
+                    LoadRegisterSetStatus(A);
 
                 } break;
 
                 case INST_LDA_ABSX: {
 
-                    Word absoluteAddress = fetchWord(cycles, memory);
-                    Word absoluteAddressX = absoluteAddress + X;
-                    A = readByte(cycles, absoluteAddress, memory);
-
-                    if ((absoluteAddressX - absoluteAddress) >= 0xFF ) cycles--;
+                    Word address = addressAbsoluteOffsetX(cycles, memory);
+                    A = readByte(cycles, address, memory);
+                    LoadRegisterSetStatus(A);
 
                 } break;
 
                 case INST_LDA_ABSY: {
 
-                    Word absoluteAddress = fetchWord(cycles, memory);
-                    Word absoluteAddressY = absoluteAddress + Y;
-                    A = readByte(cycles, absoluteAddress, memory);
-
-                    if ((absoluteAddressY - absoluteAddress) >= 0xFF ) cycles--;
+                    Word address = addressAbsoluteOffsetY(cycles, memory);
+                    A = readByte(cycles, address, memory);
+                    LoadRegisterSetStatus(A);
 
                 } break;
 
@@ -188,6 +235,7 @@ struct CPU {
                     cycles--;
                     Word effectiveAddress = readWord(cycles, ZeroPageAddress, memory);
                     A = readByte(cycles, effectiveAddress, memory);
+                    LoadRegisterSetStatus(A);
 
                 } break;
 
@@ -198,11 +246,96 @@ struct CPU {
                     Word effectiveAddressY = effectiveAddress + Y;
                     A = readByte(cycles, effectiveAddressY, memory);
                     if ((effectiveAddressY - effectiveAddress) >= 0xFF ) cycles--;
+                    LoadRegisterSetStatus(A);
 
                 } break;
 
+                /* LDX */
+
+                case INST_LDX_IM: {
+
+                    X = fetchByte(cycles, memory);
+                    LoadRegisterSetStatus(X);
+
+                } break;
+
+                case INST_LDX_ZP: {
+
+                    Word address = addressZeroPage(cycles, memory);
+                    X = readByte(cycles, address, memory);
+                    LoadRegisterSetStatus(X);
+
+                } break;
+
+                case INST_LDX_ZPY: {
+
+                    Word address = addressZeroPageOffsetY(cycles, memory);
+                    X = readByte(cycles, address, memory);
+                    LoadRegisterSetStatus(X);
+
+                } break;
+
+                case INST_LDX_ABS: {
+
+                    Word address = addressAbsolute(cycles, memory);
+                    X = readByte(cycles, address, memory);
+                    LoadRegisterSetStatus(X);
+
+                } break;
+
+                case INST_LDX_ABSY: {
+
+                    Word address = addressAbsoluteOffsetY(cycles, memory);
+                    X = readByte(cycles, address, memory);
+                    LoadRegisterSetStatus(X);
+
+                } break;
+
+                /* LDY */
+
+                case INST_LDY_IM: {
+
+                    Y = fetchByte(cycles, memory);
+                    LoadRegisterSetStatus(Y);
+
+                } break;
+
+                case INST_LDY_ZP: {
+
+                    Word address = addressZeroPage(cycles, memory);
+                    Y = readByte(cycles, address, memory);
+                    LoadRegisterSetStatus(Y);
+
+                } break;
+
+                case INST_LDY_ZPX: {
+
+                    Word address = addressZeroPageOffsetX(cycles, memory);
+                    Y = readByte(cycles, address, memory);
+                    LoadRegisterSetStatus(Y);
+
+                } break;
+
+                case INST_LDY_ABS: {
+
+                    Word address = addressAbsolute(cycles, memory);
+                    Y = readByte(cycles, address, memory);
+                    LoadRegisterSetStatus(Y);
+
+                } break;
+
+                case INST_LDY_ABSX: {
+
+                    Word address = addressAbsoluteOffsetX(cycles, memory);
+                    Y = readByte(cycles, address, memory);
+                    LoadRegisterSetStatus(Y);
+
+                } break;
+
+                /* JSR */
+
                 case INST_JSR: {
-                    
+
                     Word subAddr = fetchWord(cycles, memory);
                     memory.writeWord(cycles,PC - 1, SP);
                     SP += 2;
