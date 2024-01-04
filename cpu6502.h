@@ -75,7 +75,7 @@ struct CPU {
         return data;
     }
 
-    static Byte readByte(u32 &cycles, Word address, MEM &memory) {
+    static Byte readByte(u32 &cycles, Word address, const MEM &memory) {
         Byte data = memory[address];
         cycles--;
         return data;
@@ -86,7 +86,7 @@ struct CPU {
         cycles--;
     }
 
-    static Word readWord(u32 &cycles, Word address, MEM &memory) {
+    static Word readWord(u32 &cycles, Word address, const MEM &memory) {
         Byte lowByte = readByte(cycles, address, memory);
         Byte highByte = readByte(cycles, address + 1, memory);
 
@@ -141,20 +141,20 @@ struct CPU {
             INST_STA_ZP     = 0x85,
             INST_STA_ZPX    = 0x95,
             INST_STA_ABS    = 0x8D,
-            INST_STA_ABSX   = 0x9D,
-            INST_STA_ABSY   = 0x99,
-            INST_STA_INDX   = 0x81,
-            INST_STA_INDY   = 0x91,
+            INST_STA_ABSX   = 0x9D, // TODO: Error! Extra cycle!
+            INST_STA_ABSY   = 0x99, // TODO: Error! Extra cycle!
+            INST_STA_INDX   = 0x81, // TODO: Error! Extra cycle!
+            INST_STA_INDY   = 0x91, // TODO: Error! Extra cycle!
 
             // STX
             INST_STX_ZP     = 0x86,
-            INST_STX_ZPX    = 0x96,
-            INST_STX_ABS    = 0x8E,
+            INST_STX_ZPX    = 0x96,  // TODO: Error! Extra cycle!
+            INST_STX_ABS    = 0x8E,  // TODO: Error! Extra cycle!
 
             // STY
             INST_STY_ZP     = 0x84,
-            INST_STY_ZPX    = 0x94,
-            INST_STY_ABS    = 0x8C,
+            INST_STY_ZPX    = 0x94,  // TODO: Error! Extra cycle!
+            INST_STY_ABS    = 0x8C,  // TODO: Error! Extra cycle!
 
             // JSR
             INST_JSR        = 0x20;
@@ -165,40 +165,56 @@ struct CPU {
         N = (reg & 0b10000000) > 0;
     }
 
-    Word addressZeroPage(u32 &cycles,const MEM &memory) {
+    Word addressZeroPage(u32 &cycles, const MEM &memory) {
         Byte zeroPageAddress = fetchByte(cycles, memory);
         return zeroPageAddress;
     }
 
-    Word addressZeroPageOffsetX(u32 &cycles,const MEM &memory) {
+    Word addressZeroPageOffsetX(u32 &cycles, const MEM &memory) {
         Byte zeroPageAddress = fetchByte(cycles, memory);
         zeroPageAddress += X;
         cycles--;
     }
 
-    Word addressZeroPageOffsetY(u32 &cycles,const MEM &memory) {
+    Word addressZeroPageOffsetY(u32 &cycles, const MEM &memory) {
         Byte zeroPageAddress = fetchByte(cycles, memory);
         zeroPageAddress += Y;
         cycles--;
     }
 
-    Word addressAbsolute(u32 &cycles,const MEM &memory) {
+    Word addressAbsolute(u32 &cycles, const MEM &memory) {
          Word absoluteAddress = fetchWord(cycles, memory);
          return absoluteAddress;
     }
 
-    Word addressAbsoluteOffsetX(u32 &cycles,const MEM &memory) {
+    Word addressAbsoluteOffsetX(u32 &cycles, const MEM &memory) {
         Word absoluteAddress = fetchWord(cycles, memory);
         Word absoluteAddressX = absoluteAddress + X;
         if ((absoluteAddressX - absoluteAddress) >= 0xFF ) cycles--;
         return absoluteAddressX;
     }
 
-    Word addressAbsoluteOffsetY(u32 &cycles,const MEM &memory) {
+    Word addressAbsoluteOffsetY(u32 &cycles, const MEM &memory) {
         Word absoluteAddress = fetchWord(cycles, memory);
         Word absoluteAddressY = absoluteAddress + Y;
         if ((absoluteAddressY - absoluteAddress) >= 0xFF ) cycles--;
         return absoluteAddressY;
+    }
+
+    Word addressIndexedIndirect_X(u32 &cycles, const MEM &memory) {
+        Byte ZeroPageAddress = fetchByte(cycles, memory);
+        ZeroPageAddress += X;
+        cycles--;
+        Word effectiveAddress = readWord(cycles, ZeroPageAddress, memory);
+        return effectiveAddress;
+    }
+
+    Word addressIndirectIndexed_Y(u32 &cycles, const MEM &memory) {
+        Byte ZeroPageAddress = fetchByte(cycles, memory);
+        Word effectiveAddress = readWord(cycles, ZeroPageAddress, memory);
+        Word effectiveAddressY = effectiveAddress + Y;
+        if ((effectiveAddressY - effectiveAddress) >= 0xFF ) cycles--;
+        return effectiveAddressY;
     }
 
     void exec(u32 cycles, MEM &memory) {
@@ -260,22 +276,15 @@ struct CPU {
 
                 case INST_LDA_INDX: {
 
-                    Byte ZeroPageAddress = fetchByte(cycles, memory);
-                    ZeroPageAddress += X;
-                    cycles--;
-                    Word effectiveAddress = readWord(cycles, ZeroPageAddress, memory);
-                    loadRegister(effectiveAddress, A);
+                    Word address = addressIndexedIndirect_X(cycles, memory);
+                    loadRegister(address, A);
 
                 } break;
 
                 case INST_LDA_INDY: {
 
-                    Byte ZeroPageAddress = fetchByte(cycles, memory);
-                    Word effectiveAddress = readWord(cycles, ZeroPageAddress, memory);
-                    Word effectiveAddressY = effectiveAddress + Y;
-                    if ((effectiveAddressY - effectiveAddress) >= 0xFF ) cycles--;
-
-                    loadRegister(effectiveAddressY, A);
+                    Word address = addressIndirectIndexed_Y(cycles, memory);
+                    loadRegister(address, A);
 
                 } break;
 
@@ -369,14 +378,14 @@ struct CPU {
                 } break;
 
                 case INST_STA_ABS: {
-
+                    // TODO: Fails!
                     Word address = addressAbsolute(cycles, memory);
                     writeByte(A, cycles, address, memory);
 
                 } break;
 
                 case INST_STA_ABSX: {
-
+                    // TODO: Fails!
                     Word address = addressAbsoluteOffsetX(cycles, memory);
                     writeByte(A, cycles, address, memory);
 
@@ -391,13 +400,15 @@ struct CPU {
 
                 case INST_STA_INDX: {
 
-
+                    Word address = addressIndexedIndirect_X(cycles, memory);
+                    writeByte(A, cycles, address, memory);
 
                 } break;
 
                 case INST_STA_INDY: {
 
-
+                    Word address = addressIndirectIndexed_Y(cycles, memory);
+                    writeByte(A, cycles, address, memory);
 
                 } break;
 
