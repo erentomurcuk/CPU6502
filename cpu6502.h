@@ -36,17 +36,11 @@ struct MEM {
         return Data[addr]; // assert here Address is < MAX_MEM
     }
 
-    // Write 2 bytes
-    void writeWord(u32 &cycles, Word value, u32 address) {
-        Data[address]       = value & 0xFF;
-        Data[address + 1]   = (value >> 8);
-        cycles -= 2;
-    }
 };
 
 struct CPU {
     Word PC; // Program Counter
-    Word SP; // Stack Pointer
+    Byte SP; // Stack Pointer
 
     Byte A, X, Y; // Registers
 
@@ -60,7 +54,7 @@ struct CPU {
 
     void reset(MEM &memory) { // Inaccurate
         PC                          = 0xFFFC;
-        SP                          = 0x0100; // Normally it is supposed to be 0x00FF
+        SP                          = 0x00FF;
         C = Z = I = D = B = V = N   = 0x0;
         A = X = Y                   = 0x0;
 
@@ -68,10 +62,23 @@ struct CPU {
         // Set IO vectors
     }
 
-    Byte fetchByte(u32 &cycles,const MEM &memory) {
+    Byte fetchByte(u32 &cycles, const MEM &memory) {
         Byte data = memory[PC];
         PC++;
         cycles--;
+        return data;
+    }
+
+    Word fetchWord(u32 &cycles, const MEM &memory) {
+        // 6502 is little endian!
+        Word data = memory[PC];
+        PC++;
+
+        data |= (memory[PC] << 8);
+        PC++;
+
+        cycles -= 2;
+
         return data;
     }
 
@@ -93,21 +100,30 @@ struct CPU {
         return lowByte | (highByte << 8);
     }
 
-    Word fetchWord(u32 &cycles,const MEM &memory) {
-        // 6502 is little endian!
-        Word data = memory[PC];
-        PC++;
-
-        data |= (memory[PC] << 8);
-        PC++;
-
-        cycles-=2;
-
-        // to handle endianness swap bytes here as:
-        /* if(PLATFORM_BIG_ENDIAN) swapBytesInWord(data); */
-
-        return data;
+    static void writeWord(u32 &cycles, Word value, Word address, MEM &memory) {
+        memory[address]       = value & 0xFF;
+        memory[address + 1]   = (value >> 8);
+        cycles -= 2;
     }
+
+    Word SP_toAddress() const {
+        // Return the Stack Pointer as a full 16-bit address (in the first page).
+        return 0x100 | SP;
+    }
+
+    void pushPCToStack(u32 &cycles, MEM &memory) {
+        writeWord(cycles, PC - 1, SP_toAddress() - 1, memory);
+        SP -= 2;
+    }
+
+    Word popWordFromStack(u32 &cycles, MEM &memory) {
+        Word valueFromStack = readWord(cycles, SP_toAddress() + 1, memory);
+        SP += 2;
+        cycles--;
+        return valueFromStack;
+    }
+
+
 
     /* OPCODES */
 
@@ -141,23 +157,29 @@ struct CPU {
             INST_STA_ZP     = 0x85,
             INST_STA_ZPX    = 0x95,
             INST_STA_ABS    = 0x8D,
-            INST_STA_ABSX   = 0x9D, // TODO: Error! Extra cycle!
-            INST_STA_ABSY   = 0x99, // TODO: Error! Extra cycle!
-            INST_STA_INDX   = 0x81, // TODO: Error! Extra cycle!
-            INST_STA_INDY   = 0x91, // TODO: Error! Extra cycle!
+            INST_STA_ABSX   = 0x9D,
+            INST_STA_ABSY   = 0x99,
+            INST_STA_INDX   = 0x81,
+            INST_STA_INDY   = 0x91,
 
             // STX
             INST_STX_ZP     = 0x86,
-            INST_STX_ZPX    = 0x96,  // TODO: Error! Extra cycle!
-            INST_STX_ABS    = 0x8E,  // TODO: Error! Extra cycle!
+            INST_STX_ZPX    = 0x96,
+            INST_STX_ABS    = 0x8E,
 
             // STY
             INST_STY_ZP     = 0x84,
-            INST_STY_ZPX    = 0x94,  // TODO: Error! Extra cycle!
-            INST_STY_ABS    = 0x8C,  // TODO: Error! Extra cycle!
+            INST_STY_ZPX    = 0x94,
+            INST_STY_ABS    = 0x8C,
+
+            // JMP
+            INST_JMP        = 0x0, //TODO: Edit
 
             // JSR
-            INST_JSR        = 0x20;
+            INST_JSR        = 0x20,
+
+            // RTS
+            INST_RTS        = 0x60;
 
     // Set correct CPU status after LDA, LDX, LDY
     void loadRegisterSetStatus(const Byte reg) {
@@ -194,10 +216,26 @@ struct CPU {
         return absoluteAddressX;
     }
 
+    Word addressAbsoluteOffsetX_fiveCycleModified(u32 &cycles, const MEM &memory) {
+        // Always takes an extra cycle for the X page boundary. - STA_ABSX
+        Word absoluteAddress = fetchWord(cycles, memory);
+        Word absoluteAddressX = absoluteAddress + X;
+        cycles--;
+        return absoluteAddressX;
+    }
+
     Word addressAbsoluteOffsetY(u32 &cycles, const MEM &memory) {
         Word absoluteAddress = fetchWord(cycles, memory);
         Word absoluteAddressY = absoluteAddress + Y;
         if ((absoluteAddressY - absoluteAddress) >= 0xFF ) cycles--;
+        return absoluteAddressY;
+    }
+
+    Word addressAbsoluteOffsetY_fiveCycleModified(u32 &cycles, const MEM &memory) {
+        // Always takes an extra cycle for the Y page boundary. - STA_ABSY
+        Word absoluteAddress = fetchWord(cycles, memory);
+        Word absoluteAddressY = absoluteAddress + Y;
+        cycles--;
         return absoluteAddressY;
     }
 
@@ -214,6 +252,15 @@ struct CPU {
         Word effectiveAddress = readWord(cycles, ZeroPageAddress, memory);
         Word effectiveAddressY = effectiveAddress + Y;
         if ((effectiveAddressY - effectiveAddress) >= 0xFF ) cycles--;
+        return effectiveAddressY;
+    }
+
+    Word addressIndirectIndexed_Y_sixCycleModified(u32 &cycles, const MEM &memory) {
+        // Always takes an extra cycle for the Y page boundary. - STA_INDY
+        Byte ZeroPageAddress = fetchByte(cycles, memory);
+        Word effectiveAddress = readWord(cycles, ZeroPageAddress, memory);
+        Word effectiveAddressY = effectiveAddress + Y;
+        cycles--;
         return effectiveAddressY;
     }
 
@@ -378,22 +425,22 @@ struct CPU {
                 } break;
 
                 case INST_STA_ABS: {
-                    // TODO: Fails!
+
                     Word address = addressAbsolute(cycles, memory);
                     writeByte(A, cycles, address, memory);
 
                 } break;
 
                 case INST_STA_ABSX: {
-                    // TODO: Fails!
-                    Word address = addressAbsoluteOffsetX(cycles, memory);
+
+                    Word address = addressAbsoluteOffsetX_fiveCycleModified(cycles, memory);
                     writeByte(A, cycles, address, memory);
 
                 } break;
 
                 case INST_STA_ABSY: {
 
-                    Word address = addressAbsoluteOffsetY(cycles, memory);
+                    Word address = addressAbsoluteOffsetY_fiveCycleModified(cycles, memory);
                     writeByte(A, cycles, address, memory);
 
                 } break;
@@ -407,7 +454,7 @@ struct CPU {
 
                 case INST_STA_INDY: {
 
-                    Word address = addressIndirectIndexed_Y(cycles, memory);
+                    Word address = addressIndirectIndexed_Y_sixCycleModified(cycles, memory);
                     writeByte(A, cycles, address, memory);
 
                 } break;
@@ -463,16 +510,26 @@ struct CPU {
                 case INST_JSR: {
 
                     Word subAddr = fetchWord(cycles, memory);
-                    memory.writeWord(cycles,PC - 1, SP);
-                    SP += 2;
+                    pushPCToStack(cycles, memory);
                     PC = subAddr;
                     cycles--;
+
+                } break;
+
+                /* RTS */
+
+                case INST_RTS: {
+
+                    Word returnAddress = popWordFromStack(cycles, memory);
+                    PC = returnAddress + 1;
+                    cycles -= 2;
 
                 } break;
 
                 default: {
 
                     std::cerr << "Instruction not handled: " << inst << std::endl;
+                    throw;
 
                 } break;
             }
