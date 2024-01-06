@@ -344,3 +344,6 @@ cmake-build-debug/.cmake/api/v1/reply/index-2023-12-27T19-36-08-0881.json
 cmake-build-debug/CMakeCache.txt
 cmake-build-debug/CMakeFiles/CMakeConfigureLog.yaml
 cmake-build-debug/Testing/Temporary/LastTest.log
+
+cmake-build-debug
+
