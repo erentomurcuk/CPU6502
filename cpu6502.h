@@ -173,7 +173,8 @@ struct CPU {
             INST_STY_ABS    = 0x8C,
 
             // JMP
-            INST_JMP        = 0x0, //TODO: Edit
+            INST_JMP_ABS    = 0x4C,
+            INST_JMP_IND    = 0x6C,
 
             // JSR
             INST_JSR        = 0x20,
@@ -502,6 +503,20 @@ struct CPU {
 
                     Word address = addressAbsolute(cycles, memory);
                     writeByte(Y, cycles, address, memory);
+
+                } break;
+
+                /* JMP */
+
+                case INST_JMP_ABS: {
+
+
+
+                } break;
+
+                case INST_JMP_IND: {
+
+
 
                 } break;
 
